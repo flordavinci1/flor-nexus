@@ -3,77 +3,75 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="Estrategia de Contenido SEO", layout="wide")
+st.title("Análisis de presencia de términos y estrategia de contenido")
 
-st.title("Estrategia de Contenido a partir de términos de búsqueda")
+st.markdown("""
+Subí tus URLs y tus términos clave. La herramienta verificará si cada término aparece en el H1, la meta descripción y el contenido visible de cada página. Luego podés agregar tus notas estratégicas.
+""")
 
-# 1️⃣ Cargar términos
-st.subheader("1. Carga de términos clave")
-terminos_file = st.file_uploader("Sube CSV con términos (columna: termino)", type=["csv"])
-if terminos_file:
-    df_terminos = pd.read_csv(terminos_file)
-    terminos = df_terminos['termino'].dropna().tolist()
-    st.write("Términos cargados:", terminos)
+# --- Input ---
+urls_input = st.text_area("URLs del sitio (una por línea)")
+terms_input = st.text_area("Términos clave (una por línea)")
 
-# 2️⃣ Cargar URLs del sitio
-st.subheader("2. Carga de URLs del sitio")
-urls_file = st.file_uploader("Sube CSV con URLs (columna: url)", type=["csv"])
-if urls_file:
-    df_urls = pd.read_csv(urls_file)
-    urls = df_urls['url'].dropna().tolist()
-    st.write("URLs cargadas:", len(urls))
+urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
+terms = [t.strip() for t in terms_input.split("\n") if t.strip()]
 
-# 3️⃣ Función heurística de búsqueda
-def check_term_in_page(url, term):
-    try:
-        r = requests.get(url, timeout=5)
-        if r.status_code != 200:
-            return "Error"
-        soup = BeautifulSoup(r.text, "html.parser")
-        h1 = " ".join([h.get_text() for h in soup.find_all("h1")])
-        meta = soup.find("meta", attrs={"name": "description"})
-        meta_desc = meta["content"] if meta else ""
-        body = soup.get_text()
-        
-        estado = {
-            "H1": "✅" if term.lower() in h1.lower() else "❌",
-            "Meta": "✅" if term.lower() in meta_desc.lower() else "❌",
-            "Contenido": "✅" if term.lower() in body.lower() else "❌"
-        }
-        return estado
-    except Exception as e:
-        return {"H1": "Error", "Meta": "Error", "Contenido": "Error"}
+if urls and terms:
 
-# 4️⃣ Analizar presencia de términos
-if terminos_file and urls_file:
-    st.subheader("3. Análisis de presencia de términos en el sitio")
-    resultados = []
+    # --- Función de análisis ---
+    def check_term_in_page(url, term):
+        try:
+            r = requests.get(url, timeout=5)
+            if r.status_code != 200:
+                return {"H1": "Error", "Meta": "Error", "Contenido": "Error"}
+            
+            soup = BeautifulSoup(r.text, "html.parser")
+            
+            h1 = " ".join([h.get_text() for h in soup.find_all("h1")])
+            meta = soup.find("meta", attrs={"name": "description"})
+            meta_desc = meta["content"] if meta else ""
+            body = soup.get_text()
+            
+            return {
+                "H1": "✅" if term.lower() in h1.lower() else "❌",
+                "Meta": "✅" if term.lower() in meta_desc.lower() else "❌",
+                "Contenido": "✅" if term.lower() in body.lower() else "❌"
+            }
+        except Exception as e:
+            return {"H1": "Error", "Meta": "Error", "Contenido": "Error"}
+
+    # --- Construir tabla de resultados ---
+    rows = []
     for url in urls:
-        for term in terminos:
+        for term in terms:
             estado = check_term_in_page(url, term)
-            resultados.append({
+            rows.append({
                 "URL": url,
-                "Termino": term,
+                "Término": term,
                 "H1": estado["H1"],
                 "Meta descripción": estado["Meta"],
-                "Contenido": estado["Contenido"]
+                "Contenido": estado["Contenido"],
+                "Notas estratégicas": ""  # campo editable
             })
-    df_result = pd.DataFrame(resultados)
-    
-    # Colorear estado
-    def color_estado(val):
-        if val == "✅":
-            color = "lightgreen"
-        elif val == "❌":
-            color = "salmon"
-        else:
-            color = "lightgray"
-        return f"background-color: {color}"
-    
-    st.dataframe(df_result.style.applymap(color_estado, subset=["H1","Meta descripción","Contenido"]))
 
-    # 5️⃣ Notas estratégicas
-    st.subheader("4. Notas estratégicas")
-    for url in urls:
-        st.markdown(f"**URL: {url}**")
-        nota = st.text_area(f"Propuesta de optimización para {url}", key=url)
+    df = pd.DataFrame(rows)
+
+    # --- Mostrar tabla editable ---
+    edited_df = st.data_editor(
+        df,
+        num_rows="dynamic",
+        column_config={
+            "Notas estratégicas": st.column_config.TextColumn(
+                "Notas estratégicas",
+                help="Agregá aquí ideas de optimización o estrategia de contenido"
+            )
+        }
+    )
+
+    st.markdown("### Exportar tabla con notas")
+    st.download_button(
+        label="Descargar CSV",
+        data=edited_df.to_csv(index=False).encode("utf-8"),
+        file_name="analisis_terminos.csv",
+        mime="text/csv"
+    )
